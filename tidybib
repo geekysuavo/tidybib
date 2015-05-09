@@ -1,0 +1,203 @@
+#!/usr/bin/env python
+
+# import required python modules.
+import re, os, sys
+
+# define a library class that aggregates multiple bibtex files and writes
+# a single bibtex file containing `smoothed' contents of the original
+# input files.
+class library:
+  # __init__(): class initialization method.
+  def __init__(self):
+    # define two regular expression strings for bibtex parsing.
+    self.re_entry = '^@([a-z]+)\{([^@]*)'
+    self.re_field = '([a-z]+) *= *\{(.*)\},?'
+
+    # define a tuple of all bibtex fields that should be obtained from
+    # any digested input files.
+    self.fieldnames = ('title', 'author', 'journal', 'volume', 'number',
+                       'year', 'pages')
+
+    # initialize the list of digested bibtex entries.
+    self.entries = []
+
+
+  # digest(): digest a list of input bibtex filenames.
+  def digest(self, fnames):
+    # loop over every input filename in the list.
+    for fname in fnames:
+      # digest the current bibtex file.
+      self.digestFile(fname)
+
+    # generate a list of journal names from the digested entries.
+    jlst = [ent['journal'] for ent in self.entries]
+    self.journals = sorted(list(set(jlst)))
+
+
+  # digestFile(): digest a single input bibtex file.
+  def digestFile(self, fname):
+    # check that the filename points to a file that exists.
+    if not os.path.exists(fname):
+      # whoops. nonexistent file.
+      print('File "{}" does not exist'.format(fname))
+      raise(IOError)
+
+    # open the input file, read its contents, and close it.
+    f = open(fname, 'r')
+    fstr = f.read().replace('\r', '')
+    f.close()
+
+    # find all bibtex entries in the input string.
+    matches = re.findall(self.re_entry, fstr, re.M)
+    if not matches:
+      # whoops. no entries found in the input string.
+      print('File "{}" contains no entries'.format(fname))
+      raise(ValueError)
+
+    # loop over all bibtex entries found in the input string.
+    for match in matches:
+      # parse all bibtex fields from the current entry.
+      subs = re.findall(self.re_field, match[1])
+      if not subs:
+        # whoops. no fields were parsed from the current entry.
+        print('Entry "{}" of file "{}" has no fields'.format(match[1], fname))
+        raise(ValueError)
+
+      # create a dictionary from the current field match list.
+      subs = dict(subs)
+      smsubs = {'type': match[0]}
+
+      # ensure that each entry has a defined journal field.
+      if 'journal' not in subs:
+        subs['journal'] = 'books'
+
+      # check that the current entry has a defined author field.
+      if 'author' not in subs:
+        # whoops. no author field was found in the current entry.
+        print('Entry "{}" of file "{}" is authorless'.format(subs, fname))
+        raise(ValueError)
+
+      # check that the current entry has a defined year field.
+      if 'year' not in subs:
+        # whoops. no year field was found in the current entry.
+        print('Entry "{}" of file "{}" is yearless'.format(subs, fname))
+        raise(ValueError)
+
+      # move every desired bibtex field from the current entry into a final
+      # dictionary that is to be stored in the list of digested entries.
+      for fieldname in self.fieldnames:
+        if fieldname in subs:
+          smsubs[fieldname] = subs[fieldname]
+
+      # perform a few final munging operations on the retained fields.
+      smsubs['author'] = smsubs['author'].split(' and ')
+      smsubs['journal'] = smsubs['journal'].replace('.', '')
+
+      # store the final digested entry into the list of entries.
+      self.entries.append(smsubs)
+
+
+  # write(): write all digested bibtex entries to standard output.
+  def write(self):
+    # loop over the list of distinct journal strings.
+    for journal in self.journals:
+      # print a heading for the current journal.
+      hstr = '% ' + journal.lower() + ' '
+      hstr += '=' * (78 - len(hstr))
+      print(hstr)
+      print
+
+      # build a list of all entries published in the current journal.
+      ents = []
+      for entry in self.entries:
+        if entry['journal'] == journal:
+          ents.append(entry)
+
+      # sort the entries according to publication year.
+      ents = sorted(ents, key = lambda ent: int(ent['year']))
+
+      # loop over the sorted entries in the current journal.
+      for entry in ents:
+        # pull out a few fields from the entry.
+        year = int(entry['year'])
+        auths = entry['author']
+        nauths = len(auths)
+        auth = auths[0].split(',')[0].lower()
+        twords = entry['title'].split()
+        tlines = []
+
+        # begin printing the current entry.
+        print('@{}{{{}{},'.format(entry['type'], auth, year))
+
+        # ensure the title is encased by two curly braces.
+        if not twords[0][0] == '{':
+          twords[0] = '{' + twords[0]
+          twords[-1] = twords[-1] + '}'
+
+        # split the words in the title string into multiple lines.
+        i = 0
+        while i < len(twords):
+          n = 1
+          l = len(twords[i])
+          while True:
+            n += 1
+            l = len(' '.join(twords[i:i+n]))
+            if l > 60 or n >= len(twords):
+              n -= 1
+              break
+          tlines.append(' '.join(twords[i:i+n]))
+          i += n
+
+        # print the lines of the title string.
+        nlines = len(tlines)
+        if nlines == 1:
+          print('  title = {{{}}},'.format(tlines[0]))
+        else:
+          print('  title = {{{}'.format(tlines[0]))
+          for i in range(1, nlines - 1):
+            print('            {}'.format(tlines[i]))
+          print('            {}}},'.format(tlines[nlines - 1]))
+
+        # print the authors.
+        if nauths == 1:
+          print('  author = {{{}}},'.format(auths[0]))
+        else:
+          print('  author = {{{} and'.format(auths[0]))
+          for i in range(1, nauths - 1):
+            print('            {} and'.format(auths[i]))
+          print('            {}}},'.format(auths[nauths - 1]))
+
+        # print the journal.
+        print('  journal = {{{}}},'.format(entry['journal']))
+
+        # print the volume number.
+        if 'volume' in entry:
+          print('  volume = {{{}}},'.format(entry['volume']))
+
+        # print the issue number.
+        if 'number' in entry:
+          print('  number = {{{}}},'.format(entry['number']))
+
+        # print the pages.
+        if 'pages' in entry:
+          pg = entry['pages'].replace('--', '-').replace('-', '--')
+          print('  year = {{{}}},'.format(year))
+          print('  pages = {{{}}}'.format(pg))
+        else:
+          print('  year = {{{}}}'.format(year))
+
+        # end printing of the current entry.
+        print('}')
+        print
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+# instantiate a new library object.
+lib = library()
+
+# digest all provided bibtex input files into the library.
+lib.digest(sys.argv[1:])
+
+# write specially-formatted bibtex to the standard output.
+lib.write()
+
