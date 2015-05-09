@@ -17,3 +17,11 @@ So, tidybib fills that need. Long story short, I'm anal about BibTeX and LaTeX
 source file formatting and I wrote a quick hack to satisfy my need for
 consistency and structure. It's sad, really.
 
+## Notice
+
+No guarantees that this will work for you, but it should barf pretty hard if
+you try and feed it files that aren't formatted as it expects. One thing to
+make sure of is that no email addresses (i.e. no ampersands) are present in
+the BibTeX fields, and that each field only occupies a single line of text
+in the input files.
+
